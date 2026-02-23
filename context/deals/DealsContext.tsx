@@ -73,14 +73,12 @@ export const DealsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       }
       try {
         // Delega para useCreateDeal que já faz optimistic insert em DEALS_VIEW_KEY
-        // updatedAt é omitido: CreateDealInput não o aceita, e mutationFn já o define
+        // Strip updatedAt: CreateDealInput omite esse campo (mutationFn define internamente)
+        // isWon e isLost já são boolean required em Omit<Deal, 'id' | 'createdAt'>,
+        // satisfazendo diretamente os campos optional de CreateDealInput — sem cast necessário
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { updatedAt: _updatedAt, ...dealWithoutUpdatedAt } = deal as Deal;
-        const data = await createDealMutation.mutateAsync({
-          ...dealWithoutUpdatedAt,
-          isWon: (deal as Deal & { isWon?: boolean }).isWon ?? false,
-          isLost: (deal as Deal & { isLost?: boolean }).isLost ?? false,
-        });
+        const { updatedAt: _, ...createInput } = deal;
+        const data = await createDealMutation.mutateAsync(createInput);
         return data;
       } catch (error) {
         console.error('Erro ao criar deal:', (error as Error).message);
