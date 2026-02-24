@@ -65,7 +65,7 @@ export async function GET() {
 
   if (error) {
     console.error('Error fetching channels:', error);
-    return json({ error: error.message }, 500);
+    return json({ error: 'Internal server error' }, 500);
   }
 
   return json({ channels: channels || [] });

@@ -91,7 +91,7 @@ export async function GET() {
 
   if (error) {
     console.error('[AI Templates] Error fetching templates:', error);
-    return json({ error: error.message }, 500);
+    return json({ error: 'Internal server error' }, 500);
   }
 
   // Separar templates por categoria

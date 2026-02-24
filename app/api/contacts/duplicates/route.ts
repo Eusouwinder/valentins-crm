@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('[contacts/duplicates] RPC error:', error);
-      return NextResponse.json({ message: error.message }, { status: 500 });
+      return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
     }
 
     return NextResponse.json(data);

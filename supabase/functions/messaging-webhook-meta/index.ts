@@ -455,18 +455,27 @@ Deno.serve(async (req) => {
   const appSecret = credentials?.appSecret as string | undefined;
   const signature = req.headers.get("X-Hub-Signature-256") || "";
 
-  if (appSecret) {
-    if (!signature) {
-      console.error("Missing X-Hub-Signature-256 header with appSecret configured");
-      return json(401, { error: "Missing signature" });
-    }
-    const isValid = await verifySignature(rawBody, signature, appSecret);
-    if (!isValid) {
-      console.error("Invalid webhook signature");
-      return json(401, { error: "Invalid signature" });
-    }
-  } else {
-    console.warn("[Webhook] appSecret not configured for channel, signature verification skipped");
+  if (!appSecret) {
+    console.error("[Webhook] appSecret not configured for channel — rejecting request");
+    return new Response(JSON.stringify({ error: "Webhook not configured" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!signature) {
+    console.error("[Webhook] Missing X-Hub-Signature-256 header");
+    return new Response(JSON.stringify({ error: "Missing X-Hub-Signature-256" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const isValid = await verifySignature(rawBody, signature, appSecret);
+  if (!isValid) {
+    console.error("[Webhook] Invalid webhook signature");
+    return new Response(JSON.stringify({ error: "Invalid signature" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   // Parse payload
