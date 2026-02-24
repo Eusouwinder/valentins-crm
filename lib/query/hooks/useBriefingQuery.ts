@@ -71,6 +71,9 @@ export function useGenerateBriefing() {
       // Cache the generated briefing
       queryClient.setQueryData(queryKeys.ai.briefing(dealId), data);
     },
+    onSettled: (_data, _error, dealId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.ai.briefing(dealId) });
+    },
   });
 }
 

@@ -44,7 +44,7 @@ export function useMessagingChannels() {
 
       const { data, error } = await supabase
         .from('messaging_channels')
-        .select('*')
+        .select('id, name, channel_type, provider, external_identifier, status, business_unit_id, organization_id, created_at, updated_at, settings')
         .is('deleted_at', null)
         .order('name');
 
@@ -71,7 +71,7 @@ export function useMessagingChannelsByUnit(unitId: string | undefined) {
 
       const { data, error } = await supabase
         .from('messaging_channels')
-        .select('*')
+        .select('id, name, channel_type, provider, external_identifier, status, business_unit_id, organization_id, created_at, updated_at, settings')
         .eq('business_unit_id', unitId)
         .is('deleted_at', null)
         .order('name');
@@ -99,7 +99,7 @@ export function useMessagingChannelsByType(type: ChannelType | undefined) {
 
       const { data, error } = await supabase
         .from('messaging_channels')
-        .select('*')
+        .select('id, name, channel_type, provider, external_identifier, status, business_unit_id, organization_id, created_at, updated_at, settings')
         .eq('channel_type', type)
         .is('deleted_at', null)
         .order('name');
@@ -125,7 +125,7 @@ export function useConnectedChannels() {
 
       const { data, error } = await supabase
         .from('messaging_channels')
-        .select('*')
+        .select('id, name, channel_type, provider, external_identifier, status, business_unit_id, organization_id, created_at, updated_at, settings')
         .eq('status', 'connected')
         .is('deleted_at', null)
         .order('name');

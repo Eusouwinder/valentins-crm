@@ -80,7 +80,16 @@ export const queryKeys = {
     messagingConversations: createExtendedQueryKeys('messagingConversations', base => ({
         /** Filtered conversations (inbox view) */
         filtered: (filters?: ConversationFilters) =>
-          [...base.all, 'filtered', filters ? JSON.stringify(filters) : undefined] as const,
+          [...base.all, 'filtered',
+            filters?.status ?? null,
+            filters?.channelId ?? null,
+            filters?.businessUnitId ?? null,
+            filters?.assignedUserId ?? null,
+            filters?.hasUnread ?? null,
+            filters?.search ?? null,
+            filters?.sortBy ?? null,
+            filters?.sortOrder ?? null,
+          ] as const,
         /** Conversations for a specific channel */
         byChannel: (channelId: string) => [...base.all, 'byChannel', channelId] as const,
         /** Conversations for a specific business unit */
