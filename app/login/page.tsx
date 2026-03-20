@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { getErrorMessage } from '@/lib/utils/errorUtils'
 import { Loader2, Mail, Lock, ArrowRight } from 'lucide-react'
@@ -87,10 +88,14 @@ export default function LoginPage() {
                         </div>
 
                         <div>
-                            <label htmlFor="password" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                                Senha
-                            </label>
-                            <div className="relative">
+          <div className="flex items-center justify-between mb-1.5 gap-4">
+                      <label htmlFor="password" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Senha
+                                                </label>
+                                                            <Link href="/auth/forgot-password" className="text-sm text-primary-600 hover:underline">
+                                                                          Esqueci minha senha
+                                                                                      </Link>
+                                                                                                </div>                            <div className="relative">
                                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                     <Lock className="h-5 w-5 text-slate-400" />
                                 </div>
