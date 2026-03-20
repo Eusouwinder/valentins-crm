@@ -29,7 +29,7 @@ export default function LoginPage() {
                 throw new Error('Supabase não configurado. Configure as variáveis de ambiente.')
             }
 
-            const { error } = await supabase.auth.signInWithPassword({
+            const { error } = await (supabase as any).auth.signInWithPassword({
                 email,
                 password,
             })
@@ -88,30 +88,36 @@ export default function LoginPage() {
                         </div>
 
                         <div>
-          <div className="flex items-center justify-between mb-1.5 gap-4">
-                      <label htmlFor="password" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Senha
-                                                </label>
-                                                            <Link href="/auth/forgot-password" className="text-sm text-primary-600 hover:underline">
-                                                                          Esqueci minha senha
-                                                                                      </Link>
-                                                                                                            <div className="flex items-center justify-between mb-1.5 gap-4">
-                                                                                                                              <label htmlFor="password" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                                                                                                                              Senha
-                                                                                                                                                            </label>
-                                                                                                                                                                          <Link href="/auth/forgot-password" className="text-sm text-primary-600 hover:underline">
-                                                                                                                                                                                          Esqueci minha senha
-                                                                                                                                                                                                        </Link>
-                                                                                                                                                                                                                    </div>
-                                                                                                                                                                                                                                
-                                    required
-                                    aria-required="true"
+<div>
+      <div className="flex items-center justify-between mb-1.5 gap-4">
+            <label
+                  htmlFor="password"
+                        className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                            >
+                                  Senha
+                                      </label>
+                                          <Link
+                                                href="/auth/forgot-password"
+                                                      className="text-sm text-primary-600 hover:underline"
+                                                          >
+                                                                Esqueci minha senha
+                                                                    </Link>
+                                                                      </div>
+                                                                        <input
+                                                                            id="password"
+                                                                                type="password"
+                                                                                    value={password}
+                                                                                        onChange={(e) => setPassword(e.target.value)}
+                                                                                            className="w-full border p-2 rounded"
+                                                                                                required
+                                                                                                  />
+                                                                                                  </div>
+                                                                                                                                      aria-required="true"
                                     aria-describedby={error ? "login-error" : undefined}
                                     className="block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-900/50 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 transition-all sm:text-sm"
                                     placeholder="••••••••"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                />
                             </div>
                         </div>
 
