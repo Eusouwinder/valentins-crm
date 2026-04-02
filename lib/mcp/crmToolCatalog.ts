@@ -293,6 +293,60 @@ export const CRM_TOOL_CATALOG = {
     description:
       'Read-only. Aggregates AI conversation logs for the last 30 days: count by action, total tokens, breakdown by model, and daily activity. Scoped to the authenticated organization.',
   },
+
+  // ── Admin ─────────────────────────────────────────────────────────────────
+
+  listUsers: {
+    name: 'crm.admin.users.list',
+    title: 'List team members',
+    description:
+      'Read-only. Lists all team members (profiles) for the authenticated organization. Returns id, email, full_name, role, avatar_url, created_at.',
+  },
+  listInvites: {
+    name: 'crm.admin.invites.list',
+    title: 'List pending invites',
+    description:
+      'Read-only. Lists team invites for the authenticated organization. Optionally filter by status.',
+  },
+  createInvite: {
+    name: 'crm.admin.invites.create',
+    title: 'Create invite',
+    description:
+      'Writes data. Creates a team invite for a given email and role within the authenticated organization.',
+  },
+  cancelInvite: {
+    name: 'crm.admin.invites.cancel',
+    title: 'Cancel invite',
+    description:
+      'Writes data. Cancels (deletes) a pending invite by ID within the authenticated organization.',
+  },
+
+  // ── Settings ──────────────────────────────────────────────────────────────
+
+  getAiSettings: {
+    name: 'crm.settings.ai.get',
+    title: 'Get AI settings',
+    description:
+      'Read-only. Returns AI configuration for the authenticated organization. API keys are never returned — only boolean flags indicate whether keys are configured.',
+  },
+  updateAiSettings: {
+    name: 'crm.settings.ai.update',
+    title: 'Update AI settings',
+    description:
+      'Writes data. Updates non-sensitive AI configuration fields. API keys cannot be updated via MCP.',
+  },
+  listAiTemplates: {
+    name: 'crm.settings.ai_templates.list',
+    title: 'List AI qualification templates',
+    description:
+      'Read-only. Lists AI qualification templates (system and org-specific) available to the authenticated organization.',
+  },
+  getAiFeatures: {
+    name: 'crm.settings.ai_features.get',
+    title: 'Get AI feature flags',
+    description:
+      'Read-only. Returns the current AI feature flag state (ai_enabled, ai_auto_respond, ai_qualification_mode) for the authenticated organization.',
+  },
 } as const satisfies Record<string, CrmToolCatalogEntry>;
 
 export type CrmInternalToolKey = keyof typeof CRM_TOOL_CATALOG;
