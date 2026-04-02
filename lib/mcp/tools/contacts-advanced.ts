@@ -34,7 +34,7 @@ export function registerContactsAdvancedTools(server: McpServer) {
       // Find duplicates by email
       const { data: emailDups, error: emailError } = await getDb()
         .from('contacts')
-        .select('id, name, email, phone, company, position, source, created_at')
+        .select('id, name, email, phone, company_name, source, created_at')
         .eq('organization_id', ctx.organizationId)
         .not('email', 'is', null)
         .neq('email', '')
@@ -46,7 +46,7 @@ export function registerContactsAdvancedTools(server: McpServer) {
       // Find duplicates by phone
       const { data: phoneDups, error: phoneError } = await getDb()
         .from('contacts')
-        .select('id, name, email, phone, company, position, source, created_at')
+        .select('id, name, email, phone, company_name, source, created_at')
         .eq('organization_id', ctx.organizationId)
         .not('phone', 'is', null)
         .neq('phone', '')
@@ -152,7 +152,7 @@ export function registerContactsAdvancedTools(server: McpServer) {
       // Return the surviving target contact
       const { data: merged, error: fetchError } = await getDb()
         .from('contacts')
-        .select('id, name, email, phone, company, position, source, created_at, updated_at')
+        .select('id, name, email, phone, company_name, source, created_at, updated_at')
         .eq('id', args.targetId)
         .eq('organization_id', ctx.organizationId)
         .maybeSingle();
@@ -187,7 +187,7 @@ export function registerContactsAdvancedTools(server: McpServer) {
       let query = getDb()
         .from('contacts')
         .select(
-          'id, name, email, phone, company, position, source, metadata, created_at, updated_at'
+          'id, name, email, phone, company_name, source, metadata, created_at, updated_at'
         )
         .eq('organization_id', ctx.organizationId)
         .order('created_at', { ascending: false })
@@ -218,8 +218,7 @@ export function registerContactsAdvancedTools(server: McpServer) {
               name: z.string().min(1),
               email: z.string().email().optional(),
               phone: z.string().optional(),
-              company: z.string().optional(),
-              position: z.string().optional(),
+              company_name: z.string().optional(),
               source: z.string().optional(),
             })
           )
@@ -256,8 +255,7 @@ export function registerContactsAdvancedTools(server: McpServer) {
         name: string;
         email?: string;
         phone?: string;
-        company?: string;
-        position?: string;
+        company_name?: string;
         source?: string;
       }[] = [];
       const skipped: string[] = [];
@@ -277,8 +275,7 @@ export function registerContactsAdvancedTools(server: McpServer) {
           name: contact.name,
           ...(contact.email ? { email: contact.email } : {}),
           ...(contact.phone ? { phone: contact.phone } : {}),
-          ...(contact.company ? { company: contact.company } : {}),
-          ...(contact.position ? { position: contact.position } : {}),
+          ...(contact.company_name ? { company_name: contact.company_name } : {}),
           ...(contact.source ? { source: contact.source } : {}),
         });
       }

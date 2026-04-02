@@ -38,7 +38,7 @@ export function registerAITools(server: McpServer) {
       const { data, error } = await getDb()
         .from('ai_pending_stage_advances')
         .select(
-          `id, organization_id, deal_id, from_stage_id, to_stage_id,
+          `id, organization_id, deal_id, current_stage_id, suggested_stage_id,
            confidence, reason, status, resolved_by, resolved_at,
            resolution_notes, created_at,
            deals ( id, title )`
@@ -97,7 +97,7 @@ export function registerAITools(server: McpServer) {
       // Fetch the pending advance and verify ownership
       const { data: advance, error: fetchError } = await getDb()
         .from('ai_pending_stage_advances')
-        .select('id, organization_id, deal_id, to_stage_id, status')
+        .select('id, organization_id, deal_id, suggested_stage_id, status')
         .eq('id', args.advanceId)
         .eq('organization_id', ctx.organizationId)
         .maybeSingle();
@@ -126,10 +126,10 @@ export function registerAITools(server: McpServer) {
       if (resolveError) return err(resolveError.message);
 
       // On approval, move the deal to the target stage
-      if (args.action === 'approved' && advance.to_stage_id) {
+      if (args.action === 'approved' && advance.suggested_stage_id) {
         const { error: moveError } = await getDb()
           .from('deals')
-          .update({ stage_id: advance.to_stage_id })
+          .update({ stage_id: advance.suggested_stage_id })
           .eq('id', advance.deal_id)
           .eq('organization_id', ctx.organizationId);
 
@@ -159,14 +159,14 @@ export function registerAITools(server: McpServer) {
       const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
       const [activitiesResult, dealsResult, hitlResult] = await Promise.all([
-        // Overdue activities: due_date <= today, not completed
+        // Overdue activities: date <= today, not completed
         getDb()
           .from('activities')
-          .select('id, title, type, due_date, deal_id, contact_id, created_at')
+          .select('id, title, type, date, deal_id, contact_id, created_at')
           .eq('organization_id', ctx.organizationId)
-          .eq('is_completed', false)
-          .lte('due_date', today)
-          .order('due_date', { ascending: true })
+          .eq('completed', false)
+          .lte('date', today)
+          .order('date', { ascending: true })
           .limit(50),
 
         // Recent open deals (last 30 days)
@@ -247,27 +247,27 @@ export function registerAITools(server: McpServer) {
     {
       title: 'List AI learned patterns',
       description:
-        'Read-only. Lists few-shot learned patterns for the authenticated organization. These are examples used to improve AI response quality.',
-      inputSchema: {
-        patternType: z.string().optional(),
-        limit: z.number().int().min(1).max(100).default(50),
-      },
+        'Read-only. Lists few-shot learned patterns for the authenticated organization. Patterns are stored as JSONB in organization_settings.ai_learned_patterns. Returns empty array if none configured.',
+      inputSchema: {},
     },
-    async (args) => {
+    async () => {
       const ctx = getMcpContext();
 
-      let query = getDb()
-        .from('ai_learned_patterns')
-        .select('id, pattern_type, input_context, expected_output, created_at')
+      const { data, error } = await getDb()
+        .from('organization_settings')
+        .select('ai_learned_patterns')
         .eq('organization_id', ctx.organizationId)
-        .order('created_at', { ascending: false })
-        .limit(args.limit ?? 50);
+        .maybeSingle();
 
-      if (args.patternType) query = query.eq('pattern_type', args.patternType);
-
-      const { data, error } = await query;
       if (error) return err(error.message);
-      return ok(data);
+      if (!data) return ok([]);
+
+      const raw = data.ai_learned_patterns;
+
+      // Treat null, empty object {}, or non-array as empty
+      if (!raw || !Array.isArray(raw)) return ok([]);
+
+      return ok(raw);
     }
   );
 

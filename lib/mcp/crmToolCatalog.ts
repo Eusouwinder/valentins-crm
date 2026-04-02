@@ -324,25 +324,7 @@ export const CRM_TOOL_CATALOG = {
     name: 'crm.admin.users.list',
     title: 'List team members',
     description:
-      'Read-only. Lists all team members (profiles) for the authenticated organization. Returns id, email, full_name, role, avatar_url, created_at.',
-  },
-  listInvites: {
-    name: 'crm.admin.invites.list',
-    title: 'List pending invites',
-    description:
-      'Read-only. Lists team invites for the authenticated organization. Optionally filter by status.',
-  },
-  createInvite: {
-    name: 'crm.admin.invites.create',
-    title: 'Create invite',
-    description:
-      'Writes data. Creates a team invite for a given email and role within the authenticated organization.',
-  },
-  cancelInvite: {
-    name: 'crm.admin.invites.cancel',
-    title: 'Cancel invite',
-    description:
-      'Writes data. Cancels (deletes) a pending invite by ID within the authenticated organization.',
+      'Read-only. Lists all team members (profiles) for the authenticated organization. Returns id, email, name, role, avatar_url, created_at.',
   },
 
   // ── Settings ──────────────────────────────────────────────────────────────
