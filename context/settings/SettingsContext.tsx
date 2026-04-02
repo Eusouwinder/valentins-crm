@@ -12,6 +12,7 @@ import { usePathname } from 'next/navigation';
 import { LifecycleStage, Product, CustomFieldDefinition, Lead } from '@/types';
 import { settingsService, lifecycleStagesService, productsService } from '@/lib/supabase';
 import { useAuth } from '../AuthContext';
+import { useRouteNeeds } from '@/lib/hooks/useRouteNeeds';
 import { AI_DEFAULT_MODELS, AI_DEFAULT_PROVIDER } from '@/lib/ai/defaults';
 
 const DEFAULT_LIFECYCLE_STAGES: LifecycleStage[] = [
@@ -110,6 +111,9 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { profile } = useAuth();
   const pathname = usePathname();
+  const routeNeeds = useRouteNeeds();
+  // lifecycle_stages and products only needed on pages that use CRM data or settings
+  const routeNeedsSettings = routeNeeds('contacts') || routeNeeds('deals') || routeNeeds('boards') || pathname.startsWith('/settings');
 
   // State
   const [loading, setLoading] = useState(true);
@@ -249,21 +253,23 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
       } else {
       }
 
-      // Fetch lifecycle stages
-      const { data: stages } = await lifecycleStagesService.getAll();
-      if (stages && stages.length > 0) {
-        setLifecycleStages(stages);
-      }
+      // Fetch lifecycle stages (lazy — only on routes that need it)
+      if (routeNeedsSettings) {
+        const { data: stages } = await lifecycleStagesService.getAll();
+        if (stages && stages.length > 0) {
+          setLifecycleStages(stages);
+        }
 
-      // Fetch products catalog (active only)
-      await refreshProducts();
+        // Fetch products catalog (active only)
+        await refreshProducts();
+      }
     } catch (e) {
       console.error('Error fetching settings:', e);
       setError(e instanceof Error ? e.message : 'Failed to fetch settings');
     }
 
     setLoading(false);
-  }, [profile]);
+  }, [profile, routeNeedsSettings]);
 
   useEffect(() => {
     fetchSettings();
