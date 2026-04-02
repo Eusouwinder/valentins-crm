@@ -129,6 +129,30 @@ export const CRM_TOOL_CATALOG = {
     description:
       'Writes data. Updates mutable contact fields within the authenticated organization.',
   },
+  findDuplicateContacts: {
+    name: 'crm.contacts.find_duplicates',
+    title: 'Find duplicate contacts',
+    description:
+      'Read-only. Finds potential duplicate contacts by matching email or phone within the authenticated organization. Returns groups sharing the same email or phone.',
+  },
+  mergeContacts: {
+    name: 'crm.contacts.merge',
+    title: 'Merge contacts',
+    description:
+      'Writes data. Merges two contacts: moves all deals and conversation links from the source to the target, then deletes the source. Scoped to the authenticated organization.',
+  },
+  exportContacts: {
+    name: 'crm.contacts.export',
+    title: 'Export contacts',
+    description:
+      'Read-only. Exports contacts as a JSON array with optional filters (source, dateRange). Capped at 1000 records. Scoped to the authenticated organization.',
+  },
+  importContacts: {
+    name: 'crm.contacts.import',
+    title: 'Import contacts',
+    description:
+      'Writes data. Imports an array of contacts (max 500 per call). Skips records whose email already exists in the org. Returns imported/skipped/error counts. Scoped to the authenticated organization.',
+  },
   linkDealToContact: {
     name: 'crm.deals.link_contact',
     title: 'Link deal to contact',
