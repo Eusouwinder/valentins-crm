@@ -208,6 +208,31 @@ export function useSendMessage() {
       const previousMessages = queryClient.getQueryData<MessagingMessage[]>(queryKey);
       const previousInfiniteData = queryClient.getQueryData<InfiniteData<{ messages: MessagingMessage[]; nextCursor: string | null }>>(infiniteQueryKey);
 
+      // For reactions: optimistically update the target message's metadata.reactions
+      // This gives instant UI feedback without waiting for the realtime UPDATE event
+      if (input.content.type === 'reaction') {
+        const { emoji, messageId: targetExternalId } = input.content as { type: 'reaction'; emoji: string; messageId: string };
+        const applyReaction = (m: MessagingMessage): MessagingMessage => {
+          if (m.externalId !== targetExternalId) return m;
+          const reactions = (m.metadata?.reactions as Record<string, number> | undefined) ?? {};
+          return {
+            ...m,
+            metadata: {
+              ...m.metadata,
+              reactions: { ...reactions, [emoji]: (reactions[emoji] ?? 0) + 1 },
+            },
+          };
+        };
+        queryClient.setQueryData<MessagingMessage[]>(queryKey, (old) => old?.map(applyReaction));
+        queryClient.setQueryData<InfiniteData<{ messages: MessagingMessage[]; nextCursor: string | null }>>(
+          infiniteQueryKey,
+          (old) => old
+            ? { ...old, pages: old.pages.map(p => ({ ...p, messages: p.messages.map(applyReaction) })) }
+            : old
+        );
+        return { previousMessages, previousInfiniteData, queryKey, infiniteQueryKey, optimisticMessage: null };
+      }
+
       const optimisticMessage: MessagingMessage = {
         id: `temp-${Date.now()}`,
         conversationId: input.conversationId,
@@ -251,8 +276,11 @@ export function useSendMessage() {
       }
     },
     onSuccess: (message, _input, context) => {
+      // Reactions use optimistic metadata update (no temp message to replace)
+      if (!context?.optimisticMessage) return;
+
       const replaceOptimistic = (m: MessagingMessage) =>
-        m.id === context?.optimisticMessage.id ? message : m;
+        m.id === context.optimisticMessage!.id ? message : m;
 
       // Replace in flat query
       queryClient.setQueryData<MessagingMessage[]>(context?.queryKey, (old) =>

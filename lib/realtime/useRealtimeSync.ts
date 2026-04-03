@@ -15,6 +15,9 @@ import { supabase } from '@/lib/supabase';
 import { queryKeys, DEALS_VIEW_KEY } from '@/lib/query/queryKeys';
 import type { DealView } from '@/types';
 import type { MessagingMessage } from '@/lib/messaging';
+import { transformMessage } from '@/lib/messaging/types';
+import type { DbMessagingMessage, ConversationView } from '@/lib/messaging/types';
+import { pendingDeletionIds, removePendingDeletion } from '@/lib/query/hooks/useConversationsQuery';
 
 // Enable detailed Realtime logging in development or when DEBUG_REALTIME env var is set
 const DEBUG_REALTIME = process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_DEBUG_REALTIME === 'true';
@@ -200,6 +203,8 @@ export function useRealtimeSync(
                   ...(db.failed_at != null && { failedAt: db.failed_at as string }),
                   ...(db.error_code != null && { errorCode: db.error_code as string }),
                   ...(db.error_message != null && { errorMessage: db.error_message as string }),
+                  // Include metadata so reaction updates (metadata.reactions) propagate to the UI
+                  ...(db.metadata != null && { metadata: db.metadata as Record<string, unknown> }),
                 };
 
                 const applyPatch = (m: MessagingMessage) =>
@@ -222,14 +227,15 @@ export function useRealtimeSync(
                 return; // No invalidation for UPDATE
               }
 
-              // INSERT or DELETE: invalidate to sync.
-              // Skip invalidation for our own outbound INSERTs — useSendMessage.onSuccess
-              // already placed the real message in cache. Invalidating here would trigger
-              // a full refetch that races with in-flight optimistic updates and reorders them.
+              // INSERT: inject inbound messages directly into cache for instant delivery.
+              // Invalidate-then-refetch relies on RLS evaluation in Supabase Realtime,
+              // which can fail for complex JOIN-based policies — causing messages to not appear
+              // until the user manually refreshes. Direct cache injection bypasses that entirely.
               if (payload.eventType === 'INSERT') {
                 const direction = (payload.new as Record<string, unknown>)?.direction;
                 if (direction === 'outbound') {
-                  // Only refresh the conversations list (last_message preview)
+                  // Our own outbound INSERT — useSendMessage already placed the message in cache.
+                  // Only refresh the conversations list (last_message preview).
                   pendingInvalidationsRef.current.add(queryKeys.messagingConversations.all);
                   pendingInvalidationsRef.current.add(queryKeys.messagingConversations.unreadCount());
                   if (!flushScheduledRef.current) {
@@ -239,19 +245,73 @@ export function useRealtimeSync(
                       const keysToFlush = Array.from(pendingInvalidationsRef.current);
                       pendingInvalidationsRef.current.clear();
                       keysToFlush.forEach((queryKey) => {
+                        // Skip conversations-list invalidation while a deletion is in-progress.
+                        // The shared ref may have been contaminated by a concurrent UPDATE event
+                        // (e.g. markAsRead). Flushing it here causes a refetch that returns the
+                        // conversation from DB before it's deleted, creating a flicker.
+                        if (pendingDeletionIds.size > 0 && queryKey === queryKeys.messagingConversations.all) {
+                          return;
+                        }
                         queryClient.invalidateQueries({ queryKey, exact: false, refetchType: 'all' });
                       });
                     });
                   }
                   return;
                 }
+
+                // Inbound message: inject directly into the infinite query cache.
+                // This is instant and doesn't require a network roundtrip or RLS re-evaluation.
+                const newMessage = transformMessage(payload.new as unknown as DbMessagingMessage);
+                const flatKey = queryKeys.messagingMessages.byConversation(conversationId);
+                const infiniteKey = [...flatKey, 'infinite'] as const;
+
+                queryClient.setQueryData<InfiniteData<{ messages: MessagingMessage[]; nextCursor: string | null }>>(
+                  infiniteKey,
+                  (old) => {
+                    if (!old) return old;
+                    // Append to the last page (most recent messages page).
+                    // MessageThread reverses the order, so appending here is correct.
+                    const pages = old.pages.map((page, i) => {
+                      if (i !== old.pages.length - 1) return page;
+                      // Deduplicate: skip if message already in cache
+                      if (page.messages.some((m) => m.id === newMessage.id)) return page;
+                      return { ...page, messages: [...page.messages, newMessage] };
+                    });
+                    return { ...old, pages };
+                  }
+                );
+
+                if (DEBUG_REALTIME) {
+                  console.log('[Realtime] 💬 Inbound message injected into cache:', newMessage.id);
+                }
+
+                // Also refresh conversations list for last_message preview + unread count.
+                pendingInvalidationsRef.current.add(queryKeys.messagingConversations.all);
+                pendingInvalidationsRef.current.add(queryKeys.messagingConversations.unreadCount());
+                if (!flushScheduledRef.current) {
+                  flushScheduledRef.current = true;
+                  queueMicrotask(() => {
+                    flushScheduledRef.current = false;
+                    const keysToFlush = Array.from(pendingInvalidationsRef.current);
+                    pendingInvalidationsRef.current.clear();
+                    keysToFlush.forEach((queryKey) => {
+                      queryClient.invalidateQueries({ queryKey, exact: false, refetchType: 'all' });
+                    });
+                  });
+                }
+                return;
               }
+
+              // DELETE: invalidate to sync message thread only.
+              // Do NOT invalidate messagingConversations here — that causes a race condition
+              // when deleting a conversation: messages are deleted first, firing this event
+              // before the conversation is deleted. The queueMicrotask refetch (refetchType:'all')
+              // runs while the conversation still exists in DB, causing it to flash back into
+              // the list. The messaging_conversations DELETE event handles list invalidation.
               const flatKey = queryKeys.messagingMessages.byConversation(conversationId);
               const infiniteKey = [...flatKey, 'infinite'] as const;
               pendingInvalidationsRef.current.add(flatKey);
               pendingInvalidationsRef.current.add(infiniteKey);
-              pendingInvalidationsRef.current.add(queryKeys.messagingConversations.all);
-              pendingInvalidationsRef.current.add(queryKeys.messagingConversations.unreadCount());
 
               if (!flushScheduledRef.current) {
                 flushScheduledRef.current = true;
@@ -260,6 +320,13 @@ export function useRealtimeSync(
                   const keysToFlush = Array.from(pendingInvalidationsRef.current);
                   pendingInvalidationsRef.current.clear();
                   keysToFlush.forEach((queryKey) => {
+                    // Skip conversations-list invalidation while a deletion is in-progress.
+                    // The shared ref may be contaminated by a concurrent UPDATE event (e.g.
+                    // markAsRead). Flushing messagingConversations.all here with refetchType:'all'
+                    // would return the conversation from DB before it's deleted — causing a flicker.
+                    if (pendingDeletionIds.size > 0 && queryKey === queryKeys.messagingConversations.all) {
+                      return;
+                    }
                     queryClient.invalidateQueries({ queryKey, exact: false, refetchType: 'all' });
                   });
                 });
@@ -267,6 +334,54 @@ export function useRealtimeSync(
               return;
             }
             // If no conversation_id, fall through to generic invalidation
+          }
+
+          // Targeted handling for messaging_conversations DELETE:
+          // Instead of calling invalidateQueries (which triggers a refetch), remove the
+          // conversation from the cache directly. This prevents the flicker caused by
+          // the refetch returning stale data (conversation still in DB while messages
+          // are being deleted) overwriting the optimistic removal.
+          if (table === 'messaging_conversations' && payload.eventType === 'DELETE') {
+            const deletedId = (payload.old as Record<string, unknown>)?.id as string | undefined;
+            if (deletedId) {
+              // The DELETE event is the authoritative confirmation that the conversation is gone.
+              // Lower the guard here so subsequent invalidations (e.g. unreadCount refetch) are
+              // not blocked. This is the correct place — earlier removal (e.g. in onSettled) races
+              // with DB-trigger UPDATE events that arrive via WebSocket AFTER the HTTP response.
+              removePendingDeletion(deletedId);
+              queryClient.setQueriesData(
+                { queryKey: queryKeys.messagingConversations.all },
+                (old: unknown) => {
+                  if (!Array.isArray(old)) return old;
+                  return (old as ConversationView[]).filter((conv) => conv.id !== deletedId);
+                }
+              );
+              queryClient.removeQueries({
+                queryKey: queryKeys.messagingConversations.detail(deletedId),
+              });
+              queryClient.invalidateQueries({
+                queryKey: queryKeys.messagingConversations.unreadCount(),
+              });
+              if (DEBUG_REALTIME) {
+                console.log('[Realtime] 🗑️ messaging_conversations DELETE — removed from cache directly', deletedId);
+              }
+            }
+            return; // Skip generic invalidation path
+          }
+
+          // Skip UPDATE/INSERT events for conversations currently being deleted.
+          // When messages are deleted, the DB trigger fires an UPDATE on messaging_conversations
+          // (updating last_message_at, message_count, etc.) that arrives via WebSocket AFTER the
+          // HTTP DELETE response. If we let it through, it queues a conversations-list refetch
+          // that returns the conversation (still in DB at that instant), causing the flicker.
+          if (table === 'messaging_conversations' && payload.eventType !== 'DELETE') {
+            const convId = ((payload.new || payload.old) as Record<string, unknown>)?.id as string | undefined;
+            if (convId && pendingDeletionIds.has(convId)) {
+              if (DEBUG_REALTIME) {
+                console.log('[Realtime] ⏭️ Skip conversations UPDATE for pending deletion:', convId.slice(0, 8));
+              }
+              return;
+            }
           }
 
           // Queue query keys for invalidation (lazy loaded)
@@ -747,6 +862,10 @@ export function useRealtimeSync(
               debounceTimerRef.current = setTimeout(() => {
                 // Invalidate all pending queries
                 pendingInvalidationsRef.current.forEach(queryKey => {
+                  // Skip conversations-list invalidation while a deletion is in-progress.
+                  if (pendingDeletionIds.size > 0 && queryKey === queryKeys.messagingConversations.all) {
+                    return;
+                  }
                   if (DEBUG_REALTIME) {
                     console.log(`[Realtime] Invalidating queries (debounced):`, queryKey);
                   }

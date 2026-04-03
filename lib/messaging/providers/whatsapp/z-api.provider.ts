@@ -293,7 +293,7 @@ export class ZApiWhatsAppProvider extends BaseChannelProvider {
   // ---------------------------------------------------------------------------
 
   async sendMessage(params: SendMessageParams): Promise<SendMessageResult> {
-    const { to, content, replyToMessageId } = params;
+    const { to, content, replyToExternalId } = params;
 
     try {
       // Normalize phone number (remove + and any non-digits)
@@ -303,31 +303,31 @@ export class ZApiWhatsAppProvider extends BaseChannelProvider {
 
       switch (content.type) {
         case 'text':
-          response = await this.sendTextMessage(phone, content as TextContent, replyToMessageId);
+          response = await this.sendTextMessage(phone, content as TextContent, replyToExternalId);
           break;
 
         case 'image':
-          response = await this.sendImageMessage(phone, content as ImageContent, replyToMessageId);
+          response = await this.sendImageMessage(phone, content as ImageContent, replyToExternalId);
           break;
 
         case 'video':
-          response = await this.sendVideoMessage(phone, content as VideoContent, replyToMessageId);
+          response = await this.sendVideoMessage(phone, content as VideoContent, replyToExternalId);
           break;
 
         case 'audio':
-          response = await this.sendAudioMessage(phone, content as AudioContent, replyToMessageId);
+          response = await this.sendAudioMessage(phone, content as AudioContent, replyToExternalId);
           break;
 
         case 'document':
-          response = await this.sendDocumentMessage(phone, content as DocumentContent, replyToMessageId);
+          response = await this.sendDocumentMessage(phone, content as DocumentContent, replyToExternalId);
           break;
 
         case 'sticker':
-          response = await this.sendStickerMessage(phone, content as StickerContent, replyToMessageId);
+          response = await this.sendStickerMessage(phone, content as StickerContent, replyToExternalId);
           break;
 
         case 'location':
-          response = await this.sendLocationMessage(phone, content as LocationContent, replyToMessageId);
+          response = await this.sendLocationMessage(phone, content as LocationContent, replyToExternalId);
           break;
 
         case 'reaction':
@@ -772,24 +772,29 @@ export class ZApiWhatsAppProvider extends BaseChannelProvider {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
 
+    const requestBody = body ? JSON.stringify(body) : undefined;
+    this.log('info', `${method} ${endpoint}`, body ? { ...body, document: (body as Record<string,unknown>).document, image: (body as Record<string,unknown>).image, audio: (body as Record<string,unknown>).audio } : undefined);
+
     let response: Response;
     try {
       response = await fetch(url, {
         method,
         headers,
-        body: body ? JSON.stringify(body) : undefined,
+        body: requestBody,
         signal: controller.signal,
       });
     } finally {
       clearTimeout(timeout);
     }
 
+    const responseText = await response.text();
+    this.log('info', `response ${response.status}`, responseText.slice(0, 500));
+
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Z-API request failed: ${response.status} ${errorText}`);
+      throw new Error(`Z-API request failed: ${response.status} ${responseText}`);
     }
 
-    return response.json() as Promise<T>;
+    return JSON.parse(responseText) as T;
   }
 }
 

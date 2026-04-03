@@ -147,9 +147,9 @@ const NavItem = ({
     >
       <div className="relative">
         <Icon size={20} className={isActuallyActive ? 'text-primary-500' : ''} aria-hidden="true" />
-        {badge && badge > 0 && (
+        {(badge ?? 0) > 0 && (
           <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] flex items-center justify-center px-1 text-[10px] font-bold text-white bg-red-500 rounded-full shadow-sm">
-            {badge > 99 ? '99+' : badge}
+            {badge! > 99 ? '99+' : badge}
           </span>
         )}
       </div>
@@ -331,9 +331,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                         })()}
                       >
                         <item.icon size={20} />
-                        {item.badge && item.badge > 0 && (
+                        {(item.badge ?? 0) > 0 && (
                           <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] flex items-center justify-center px-0.5 text-[9px] font-bold text-white bg-red-500 rounded-full shadow-sm">
-                            {item.badge > 99 ? '99+' : item.badge}
+                            {item.badge! > 99 ? '99+' : item.badge}
                           </span>
                         )}
                       </Link>

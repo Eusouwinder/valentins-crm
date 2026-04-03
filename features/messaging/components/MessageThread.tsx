@@ -13,6 +13,7 @@ interface MessageThreadProps {
   conversationId: string;
   /** Contact presence status from useContactPresence */
   presenceStatus?: 'online' | 'typing' | 'recording' | 'offline';
+  onReply?: (message: MessagingMessage) => void;
 }
 
 function DateDivider({ date }: { date: Date }) {
@@ -38,7 +39,7 @@ function DateDivider({ date }: { date: Date }) {
   );
 }
 
-export function MessageThread({ conversationId, presenceStatus }: MessageThreadProps) {
+export function MessageThread({ conversationId, presenceStatus, onReply }: MessageThreadProps) {
   const {
     data,
     isLoading,
@@ -53,8 +54,12 @@ export function MessageThread({ conversationId, presenceStatus }: MessageThreadP
   const prevMessagesLengthRef = useRef(0);
   const isLoadingOlderRef = useRef(false);
 
-  // Flatten pages into single message array (chronological order)
-  const messages = data?.pages.flatMap((p) => p.messages) ?? [];
+  // Flatten pages into single message array (chronological order).
+  // Filter out reaction messages — they are displayed as pills on the target
+  // message bubble, not as standalone bubbles in the thread.
+  const messages = (data?.pages.flatMap((p) => p.messages) ?? []).filter(
+    (m) => m.contentType !== 'reaction',
+  );
 
   // Scroll to bottom on new messages (not when loading older)
   useEffect(() => {
@@ -104,6 +109,27 @@ export function MessageThread({ conversationId, presenceStatus }: MessageThreadP
     return () => observer.disconnect();
   }, [handleSentinel]);
 
+  // Group messages by date — must be before early returns (Rules of Hooks)
+  const messagesWithDates = useMemo(() => {
+    const result: Array<
+      { type: 'date'; date: Date } | { type: 'message'; message: MessagingMessage }
+    > = [];
+    let lastDate: string | null = null;
+
+    messages.forEach((message) => {
+      const messageDate = new Date(message.createdAt);
+      const dateKey = format(messageDate, 'yyyy-MM-dd');
+
+      if (dateKey !== lastDate) {
+        result.push({ type: 'date', date: messageDate });
+        lastDate = dateKey;
+      }
+      result.push({ type: 'message', message });
+    });
+
+    return result;
+  }, [messages]);
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -130,27 +156,6 @@ export function MessageThread({ conversationId, presenceStatus }: MessageThreadP
     );
   }
 
-  // Group messages by date
-  const messagesWithDates = useMemo(() => {
-    const result: Array<
-      { type: 'date'; date: Date } | { type: 'message'; message: MessagingMessage }
-    > = [];
-    let lastDate: string | null = null;
-
-    messages.forEach((message) => {
-      const messageDate = new Date(message.createdAt);
-      const dateKey = format(messageDate, 'yyyy-MM-dd');
-
-      if (dateKey !== lastDate) {
-        result.push({ type: 'date', date: messageDate });
-        lastDate = dateKey;
-      }
-      result.push({ type: 'message', message });
-    });
-
-    return result;
-  }, [messages]);
-
   return (
     <div
       ref={scrollRef}
@@ -173,7 +178,15 @@ export function MessageThread({ conversationId, presenceStatus }: MessageThreadP
         if (item.type === 'date') {
           return <DateDivider key={`date-${format(item.date, 'yyyy-MM-dd')}`} date={item.date} />;
         }
-        return <MessageBubble key={item.message.id} message={item.message} />;
+        return (
+          <MessageBubble
+            key={item.message.id}
+            message={item.message}
+            conversationId={conversationId}
+            allMessages={messages}
+            onReply={onReply}
+          />
+        );
       })}
 
       {/* Typing / recording indicator */}

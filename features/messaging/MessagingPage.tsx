@@ -23,6 +23,8 @@ import {
   useResolveConversation,
   useReopenConversation,
   useDeleteConversation,
+  addPendingDeletion,
+  removePendingDeletion,
 } from '@/lib/query/hooks/useConversationsQuery';
 import {
   DropdownMenu,
@@ -55,6 +57,7 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [replyToMessage, setReplyToMessage] = useState<import('@/lib/messaging/types').MessagingMessage | null>(null);
 
   // Subscribe to realtime updates
   useRealtimeSyncMessaging();
@@ -72,14 +75,43 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
   const handleDeleteConversation = useCallback(() => {
     if (!selectedConversationId) return;
 
-    deleteConversation(selectedConversationId, {
-      onSuccess: () => {
-        setSelectedConversationId(undefined);
-        setShowDeleteConfirm(false);
-        router.push('/messaging', { scroll: false });
-      },
-    });
-  }, [selectedConversationId, deleteConversation, router]);
+    const idToDelete = selectedConversationId;
+    // Mark as pending deletion BEFORE any state updates so the select filter in
+    // useConversations immediately starts filtering this ID. This prevents stale
+    // refetches (e.g. from markAsRead.onSettled) from re-adding the conversation
+    // to the list while the delete mutation is in-flight.
+    addPendingDeletion(idToDelete);
+    // Safety fallback: if the realtime DELETE event never arrives (network issue, etc.),
+    // ensure the guard is eventually cleared so the pending-deletion filter doesn't persist.
+    setTimeout(() => removePendingDeletion(idToDelete), 10_000);
+    // Clear selection immediately so useConversation becomes disabled (enabled: false)
+    // before invalidation or realtime events trigger a refetch of the deleted conversation
+    setSelectedConversationId(undefined);
+    setShowDeleteConfirm(false);
+    router.push('/messaging', { scroll: false });
+
+    // Cancel in-flight refetches so they don't overwrite the optimistic removal below
+    queryClient.cancelQueries({ queryKey: queryKeys.messagingConversations.all });
+
+    // Optimistically remove from list cache immediately
+    queryClient.setQueriesData(
+      { queryKey: queryKeys.messagingConversations.all },
+      (old: unknown) => {
+        if (!Array.isArray(old)) return old;
+        return (old as ConversationView[]).filter((conv) => conv.id !== idToDelete);
+      }
+    );
+
+    deleteConversation(idToDelete);
+  }, [selectedConversationId, deleteConversation, router, queryClient]);
+
+  // Clear URL if conversation was deleted or not found
+  useEffect(() => {
+    if (selectedConversationId && selectedConversation === null && !isConversationLoading) {
+      setSelectedConversationId(undefined);
+      router.replace('/messaging', { scroll: false });
+    }
+  }, [selectedConversationId, selectedConversation, isConversationLoading, router]);
 
   // Mark as read when opening a conversation
   useEffect(() => {
@@ -87,6 +119,7 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
       markAsRead(selectedConversationId);
     }
   }, [selectedConversationId, selectedConversation, markAsRead]);
+
 
   // Update URL when conversation changes
   const handleSelectConversation = useCallback((id: string) => {
@@ -225,6 +258,14 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
                     <LinkIcon className="w-5 h-5" />
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+                  title="Excluir conversa"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -269,10 +310,15 @@ export function MessagingPage({ initialConversationId }: MessagingPageProps = {}
             <MessageThread
               conversationId={selectedConversation.id}
               presenceStatus={selectedConversation.contactId ? getPresence(selectedConversation.contactId) : undefined}
+              onReply={setReplyToMessage}
             />
 
             {/* Input */}
-            <MessageInput conversation={selectedConversation} />
+            <MessageInput
+              conversation={selectedConversation}
+              replyTo={replyToMessage}
+              onCancelReply={() => setReplyToMessage(null)}
+            />
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500">

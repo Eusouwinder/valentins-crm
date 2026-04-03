@@ -12,6 +12,11 @@
  * - Header `X-Webhook-Secret: <secret>` ou
  * - Header `Authorization: Bearer <secret>`
  * - Valor deve bater com o secret configurado no canal
+ *
+ * Deploy:
+ * - Esta função deve ser deployada com `--no-verify-jwt` pois recebe
+ *   chamadas externas do Z-API sem JWT do Supabase.
+ * - Exemplo: `supabase functions deploy messaging-webhook-zapi --no-verify-jwt`
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -370,6 +375,28 @@ Deno.serve(async (req) => {
   // Log other errors but continue
   if (eventInsertErr) {
     console.error("Error logging webhook event:", eventInsertErr);
+  }
+
+  // Z-API sends non-message callbacks (delivery, read receipts, connect/disconnect,
+  // presence) that have a phone field but are NOT actual messages. Letting them
+  // fall into handleInboundMessage would create fake messages like "[DeliveryCallback]".
+  const NON_MESSAGE_TYPES = new Set([
+    "DeliveryCallback",
+    "ReadCallback",
+    "MessageStatusCallback",
+    "ConnectedCallback",
+    "DisconnectedCallback",
+    "PresenceChatCallback",
+  ]);
+
+  if (payload.type && NON_MESSAGE_TYPES.has(payload.type)) {
+    console.log(`[Webhook] Skipping non-message event type: ${payload.type}`);
+    await supabase
+      .from("messaging_webhook_events")
+      .update({ processed: true, processed_at: new Date().toISOString() })
+      .eq("channel_id", channelId)
+      .eq("external_event_id", externalEventId);
+    return json(200, { ok: true, skipped: true, event_type: payload.type });
   }
 
   try {

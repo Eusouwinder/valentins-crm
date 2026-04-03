@@ -33,6 +33,32 @@ import {
 } from '@/lib/messaging/types';
 
 // =============================================================================
+// PENDING DELETION GUARD
+// =============================================================================
+
+/**
+ * Module-level set of conversation IDs currently being deleted.
+ *
+ * Problem: Other mutations (e.g. markAsRead) have their own onSettled that calls
+ * invalidateQueries(messagingConversations.all). If they complete while a delete
+ * is in-flight, their refetch can return the conversation still in the DB
+ * (the DELETE hasn't committed yet), overwriting the optimistic removal.
+ *
+ * Solution: addPendingDeletion() before starting the delete. The useConversations
+ * `select` filter removes the ID from every query result until removePendingDeletion()
+ * is called (in onSettled, after the mutation settles either way).
+ */
+export const pendingDeletionIds = new Set<string>();
+
+export function addPendingDeletion(id: string): void {
+  pendingDeletionIds.add(id);
+}
+
+export function removePendingDeletion(id: string): void {
+  pendingDeletionIds.delete(id);
+}
+
+// =============================================================================
 // QUERY HOOKS
 // =============================================================================
 
@@ -130,6 +156,13 @@ export function useConversations(filters?: ConversationFilters) {
     staleTime: 30 * 1000, // 30 seconds
     enabled: !authLoading && !!user && !!profile?.organization_id,
     placeholderData: keepPreviousData,
+    // Filter out conversations being deleted so stale refetches from other
+    // mutations (e.g. markAsRead.onSettled) can't re-add them while the
+    // delete mutation is in-flight.
+    select: (data) =>
+      pendingDeletionIds.size === 0
+        ? data
+        : data.filter((conv) => !pendingDeletionIds.has(conv.id)),
   });
 }
 
@@ -165,12 +198,10 @@ export function useConversation(conversationId: string | undefined) {
           )
         `)
         .eq('id', conversationId!)
-        .single();
+        .maybeSingle();
 
-      if (error) {
-        if (error.code === 'PGRST116') return null; // Not found
-        throw error;
-      }
+      if (error) throw error;
+      if (!data) return null;
 
       const base = transform(data as DbMessagingConversation);
       const channel = data.channel as { id: string; name: string; channel_type: string; provider: string } | null;
@@ -265,14 +296,25 @@ export function useUpdateConversation() {
         queryKey: queryKeys.messagingConversations.all,
       });
 
-      // Optimistically update all conversation caches
+      // Optimistically update list caches.
+      // Guard against non-array entries (e.g. detail queries return ConversationView | null).
       queryClient.setQueriesData(
         { queryKey: queryKeys.messagingConversations.all },
-        (old: ConversationView[] | undefined) => {
-          if (!old) return old;
-          return old.map((conv) =>
+        (old: unknown) => {
+          if (!Array.isArray(old)) return old;
+          return (old as ConversationView[]).map((conv) =>
             conv.id === conversationId ? { ...conv, ...updates } : conv
           );
+        }
+      );
+
+      // Also optimistically update the detail query so the header dropdown
+      // reflects the change immediately without waiting for the refetch.
+      queryClient.setQueryData(
+        queryKeys.messagingConversations.detail(conversationId),
+        (old: ConversationView | null | undefined) => {
+          if (!old) return old;
+          return { ...old, ...updates };
         }
       );
 
@@ -327,9 +369,15 @@ export function useMarkConversationRead() {
       );
     },
     onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.messagingConversations.all,
-      });
+      // Skip conversations-list invalidation while a delete is in-progress.
+      // The delete mutation handles cache cleanup directly, and invalidating here
+      // triggers a refetch that can return the conversation from DB before it's
+      // fully deleted, causing it to flash back into the list.
+      if (pendingDeletionIds.size === 0) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.messagingConversations.all,
+        });
+      }
       queryClient.invalidateQueries({
         queryKey: queryKeys.messagingConversations.unreadCount(),
       });
@@ -419,19 +467,36 @@ export function useDeleteConversation() {
       return conversationId;
     },
     onSuccess: (deletedId) => {
-      // Remove from all conversation caches
+      // Cancel any in-flight refetches triggered by realtime during the mutation.
+      // The messaging_messages DELETE event fires before the conversation is deleted,
+      // causing a refetch that returns the conversation still in the list and overwrites
+      // the optimistic removal. Cancelling here prevents that race condition.
+      queryClient.cancelQueries({ queryKey: queryKeys.messagingConversations.all });
+
+      // Remove detail query so onSettled invalidateQueries doesn't refetch it
+      queryClient.removeQueries({
+        queryKey: queryKeys.messagingConversations.detail(deletedId),
+      });
+      // Remove from list caches — guard against non-array entries (e.g. detail queries)
       queryClient.setQueriesData(
         { queryKey: queryKeys.messagingConversations.all },
-        (old: ConversationView[] | undefined) => {
-          if (!old) return old;
-          return old.filter((conv) => conv.id !== deletedId);
+        (old: unknown) => {
+          if (!Array.isArray(old)) return old;
+          return (old as ConversationView[]).filter((conv) => conv.id !== deletedId);
         }
       );
     },
     onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.messagingConversations.all,
-      });
+      // NOTE: removePendingDeletion is intentionally NOT called here.
+      // The guard must stay up until the messaging_conversations DELETE realtime event
+      // arrives (in useRealtimeSync). The DB trigger that runs on messages DELETE fires a
+      // conversations UPDATE event that arrives via WebSocket AFTER this HTTP onSettled —
+      // if we lower the guard here, that UPDATE queues a refetch that re-shows the deleted
+      // conversation before the DELETE realtime event cleans it up.
+      //
+      // NOTE: invalidateQueries(messagingConversations.all) is intentionally omitted.
+      // onSuccess already removed the conversation from cache; an extra invalidation here
+      // races with the still-pending DB trigger and can re-fetch a stale row.
       queryClient.invalidateQueries({
         queryKey: queryKeys.messagingConversations.unreadCount(),
       });
