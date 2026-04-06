@@ -260,7 +260,8 @@ export const contactsService = {
 
       let contactsQuery = supabase
         .from('contacts')
-        .select('*');
+        .select('*')
+        .is('deleted_at', null);
       if (options?.signal) contactsQuery = contactsQuery.abortSignal(options.signal);
       const { data, error } = await contactsQuery.in('id', uniqueIds);
 
@@ -286,6 +287,7 @@ export const contactsService = {
       const { data, error } = await supabase
         .from('contacts')
         .select('*')
+        .is('deleted_at', null)
         .order('created_at', { ascending: false })
         .limit(1000);
 
@@ -327,10 +329,11 @@ export const contactsService = {
       const from = pageIndex * pageSize;
       const to = from + pageSize - 1;
 
-      // Build query with count
+      // Build query with count (exclude soft-deleted/merged contacts)
       let query = supabase
         .from('contacts')
-        .select('*', { count: 'exact' });
+        .select('*', { count: 'exact' })
+        .is('deleted_at', null);
       if (options?.signal) query = query.abortSignal(options.signal);
 
       // Apply filters
